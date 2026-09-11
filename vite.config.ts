@@ -5,7 +5,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    base: '/New-Version-5/',  // ⚠️ 注意：有大小写、横杠和数字，必须完全一致
+    base: '/plan2.0/',  // ⚠️ 注意：点号不能省略
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
