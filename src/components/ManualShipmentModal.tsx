@@ -351,11 +351,8 @@ export const ManualShipmentModal: React.FC<ManualShipmentModalProps> = ({
         status: status || target.status,
         customsDeclarationType,
         tracking: tracking.trim() || target.tracking,
-        notes: notes.trim()
-          ? target.notes && !target.notes.includes(notes.trim())
-            ? `${target.notes} | ${notes.trim()}`
-            : notes.trim()
-          : target.notes,
+        // STRICTLY PRESERVE EACH TARGET'S OWN INDEPENDENT NOTES
+        notes: target.notes,
         updatedAt: new Date().toISOString(),
         // STRICTLY PRESERVE EACH TARGET'S OWN ITEMS & QUANTITIES
         items: target.items,
@@ -514,11 +511,8 @@ export const ManualShipmentModal: React.FC<ManualShipmentModalProps> = ({
           status: status || target.status,
           customsDeclarationType,
           tracking: tracking.trim() || target.tracking,
-          notes: notes.trim()
-            ? target.notes && !target.notes.includes(notes.trim())
-              ? `${target.notes} | ${notes.trim()}`
-              : notes.trim()
-            : target.notes,
+          // STRICTLY PRESERVE EACH TARGET'S OWN INDEPENDENT NOTES
+          notes: target.notes,
           updatedAt: new Date().toISOString(),
           // STRICTLY PRESERVE EACH TARGET'S OWN ITEMS & QUANTITIES
           items: target.items,
@@ -1168,7 +1162,7 @@ export const ManualShipmentModal: React.FC<ManualShipmentModalProps> = ({
                                 一键同步基础信息至关联货件 ({selectedMergedIds.length} 票)
                               </div>
                               <p className="text-[11px] text-blue-700 mt-0.5 leading-relaxed">
-                                将当前填写的发货日期、ETA、到仓日、目的仓、渠道、承运商、状态等基础数据同步至关联单；<strong>各单自身的商品明细与收发数量严格独立保持不变</strong>。
+                                将当前填写的发货日期、ETA、到仓日、目的仓、渠道、承运商、状态等基础数据同步至关联单；<strong>各单自身的商品明细、收发数量以及备注说明均严格独立保留</strong>。
                               </p>
                             </div>
                             <button
@@ -1372,8 +1366,8 @@ export const ManualShipmentModal: React.FC<ManualShipmentModalProps> = ({
                         <div className="flex items-center gap-1.5 text-[11px] text-amber-900 bg-amber-50/90 px-2.5 py-1.5 rounded-lg border border-amber-200">
                           <span className="font-semibold flex-shrink-0">📦 装箱构成拆分:</span>
                           <span className="font-mono text-amber-800">{item.packageBreakdown}</span>
-                          <span className="text-[10px] text-amber-600 ml-auto font-sans">
-                            (该货件内本产品发货总数: {item.shipQty} 件)
+                          <span className="text-[10px] text-amber-600 ml-auto font-sans font-medium">
+                            (同货件累加汇总: 发货共 {item.shipQty} 件 / {item.cartons} 箱)
                           </span>
                         </div>
                       )}
@@ -1406,7 +1400,7 @@ export const ManualShipmentModal: React.FC<ManualShipmentModalProps> = ({
                       className="rounded text-blue-600 focus:ring-blue-500"
                     />
                     <span>
-                      保存时自动同步基础信息至 <strong>{selectedMergedIds.length} 票关联货件</strong> (商品明细与数量独立保留)
+                      保存时自动同步基础信息至 <strong>{selectedMergedIds.length} 票关联货件</strong> (商品明细、数量与备注说明均独立保留)
                     </span>
                   </label>
                 ) : (
@@ -1833,7 +1827,12 @@ export const ManualShipmentModal: React.FC<ManualShipmentModalProps> = ({
                                             {s.items.map((it, idx) => (
                                               <tr key={idx}>
                                                 <td className="p-1.5 font-mono font-medium text-slate-900">
-                                                  {it.sku}
+                                                  <div>{it.sku}</div>
+                                                  {it.packageBreakdown && (
+                                                    <div className="text-[10px] text-amber-700 bg-amber-50 px-1 py-0.5 rounded border border-amber-200 mt-0.5 inline-block font-sans font-normal" title={it.packageBreakdown}>
+                                                      📦 {it.packageBreakdown}
+                                                    </div>
+                                                  )}
                                                 </td>
                                                 <td className="p-1.5 text-slate-600 truncate max-w-[200px]">
                                                   {it.productName}

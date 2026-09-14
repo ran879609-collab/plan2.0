@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Shipment, FreightShippingItem, ShipmentFreightSummary, InventoryItem, Product, ShipmentItem } from '../types';
 import { groupFreightItemsByShipment, calculateShipmentFreightSummary } from '../utils/freightCalculator';
+import { calculateShipmentMetrics } from '../utils/statusCalculator';
 import { downloadShipmentBatchTemplate } from '../utils/excelParser';
 import { AppStorage } from '../utils/storage';
 import { calculateDaysDifference, addDaysToDate, getTodayString } from '../utils/dateUtils';
@@ -224,18 +225,26 @@ export const FreightSyncModal: React.FC<FreightSyncModalProps> = ({
 
       const hasMixedBoxes = g.items.some((it) => !!it.mixedBoxGroup);
 
+      // Derive accurate shipment-level ship quantity from aggregated items
+      const derivedShipQty = mappedItems.reduce((sum, it) => sum + (Number(it.shipQty) || 0), 0);
+      // For total cartons: if there are mixed boxes, use g.totalCartons (physical box deduplicated), otherwise sum items cartons
+      const derivedCartons = hasMixedBoxes
+        ? g.totalCartons
+        : mappedItems.reduce((sum, it) => sum + (Number(it.cartons) || 0), 0);
+
       if (existing) {
         updated++;
-        newOrUpdatedList.push({
+        const updatedExisting = calculateShipmentMetrics({
           ...existing,
           fc: g.warehouse || existing.fc,
           shipDate: g.shipDate || existing.shipDate,
           carrier: firstItem?.channel || existing.carrier,
-          totalShipQty: g.totalUnits,
-          totalCartons: g.totalCartons, // Deduplicated mixed boxes
           items: mappedItems,
+          totalShipQty: derivedShipQty,
+          totalCartons: derivedCartons,
           updatedAt: new Date().toISOString(),
         });
+        newOrUpdatedList.push(updatedExisting);
       } else {
         created++;
         const shipDateStr = g.shipDate || new Date().toISOString().split('T')[0];
@@ -251,8 +260,8 @@ export const FreightSyncModal: React.FC<FreightSyncModalProps> = ({
           // Shipped 25+ days ago -> Long arrived and received
           initialStatus = 'Fully Received';
           arrivalDate = addDaysToDate(shipDateStr, 15);
-          recUnits = g.totalUnits;
-          recCartons = g.totalCartons;
+          recUnits = derivedShipQty;
+          recCartons = derivedCartons;
         } else if (daysPassed >= 14) {
           // Shipped 14-24 days ago -> Arrived at FC, awaiting receiving
           initialStatus = 'Arrived';
@@ -278,7 +287,7 @@ export const FreightSyncModal: React.FC<FreightSyncModalProps> = ({
           return item;
         });
 
-        newOrUpdatedList.push({
+        const newShipment = calculateShipmentMetrics({
           id: g.shipmentId,
           shipmentName: `Shipment_${g.shipmentId}`,
           fc: g.warehouse || 'PHX1',
@@ -288,21 +297,23 @@ export const FreightSyncModal: React.FC<FreightSyncModalProps> = ({
           status: initialStatus,
           carrier: firstItem?.channel || '美森快船',
           tracking: '',
-          totalShipQty: g.totalUnits,
-          totalCartons: g.totalCartons, // Deduplicated mixed boxes
+          totalShipQty: derivedShipQty,
+          totalCartons: derivedCartons,
           totalReceivedQty: recUnits,
           totalReceivedCartons: recCartons,
           missingCartons: 0,
-          totalDiscrepancyQty: Math.max(0, g.totalUnits - recUnits),
+          totalDiscrepancyQty: Math.max(0, derivedShipQty - recUnits),
           caseStatus: 'Not Eligible',
           items: itemsWithStatus,
           notes: hasMixedBoxes
-            ? `从头程出货汇总表反向提取 (包含 ${g.items.length} 个SKU, 共 ${g.totalUnits} 件, 含混箱商品，总箱数按物理箱去重为 ${g.totalCartons} 箱)`
-            : `从头程出货汇总表反向提取 (包含 ${g.items.length} 个SKU, 共 ${g.totalUnits} 件 / ${g.totalCartons} 箱)`,
+            ? `从头程出货汇总表反向提取 (包含 ${mappedItems.length} 个SKU, 共 ${derivedShipQty} 件, 含混箱商品，总箱数按物理箱去重为 ${derivedCartons} 箱)`
+            : `从头程出货汇总表反向提取 (包含 ${mappedItems.length} 个SKU, 共 ${derivedShipQty} 件 / ${derivedCartons} 箱)`,
           source: 'Freight Sync',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
+
+        newOrUpdatedList.push(newShipment);
       }
     });
 
@@ -441,16 +452,18 @@ export const FreightSyncModal: React.FC<FreightSyncModalProps> = ({
                     const skuCount = distinctSkus.length;
 
                     // Group preview items for accurate display
-                    const previewMap = new Map<string, { totalQty: number; notes: string[] }>();
+                    const previewMap = new Map<string, { totalQty: number; totalCartons: number; notes: string[] }>();
                     g.items.forEach((it) => {
                       const sku = (it.sku || '').trim();
-                      const cur = previewMap.get(sku) || { totalQty: 0, notes: [] };
+                      const cur = previewMap.get(sku) || { totalQty: 0, totalCartons: 0, notes: [] };
                       const q = Number(it.actualQty) || 0;
+                      const boxes = Number(it.boxCount) || 1;
                       cur.totalQty += q;
-                      if (it.mixedBoxGroup) {
-                        cur.notes.push(`${q}件混箱(${it.mixedBoxGroup})`);
+                      cur.totalCartons += boxes;
+                      if (it.mixedBoxGroup && it.mixedBoxGroup.trim()) {
+                        cur.notes.push(`${q}件混箱(${it.mixedBoxGroup.trim()})${boxes}箱`);
                       } else {
-                        cur.notes.push(`${q}件单箱`);
+                        cur.notes.push(`${q}件单箱${boxes}箱`);
                       }
                       previewMap.set(sku, cur);
                     });
@@ -508,8 +521,8 @@ export const FreightSyncModal: React.FC<FreightSyncModalProps> = ({
                               {Array.from(previewMap.entries())
                                 .map(([sku, data]) =>
                                   data.notes.length > 1
-                                    ? `${sku} (总计${data.totalQty}件: ${data.notes.join('+')})`
-                                    : `${sku} (${data.totalQty}件)`
+                                    ? `${sku} (总计${data.totalQty}件/${data.totalCartons}箱: ${data.notes.join('+')})`
+                                    : `${sku} (${data.totalQty}件/${data.totalCartons}箱)`
                                 )
                                 .join('，')}
                             </div>

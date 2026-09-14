@@ -263,7 +263,12 @@ export const LinkedShipmentsModal: React.FC<LinkedShipmentsModalProps> = ({
                           {shp.items.map((it, idx) => (
                             <tr key={idx} className="hover:bg-slate-50/80">
                               <td className="p-2 pl-3 font-mono font-semibold text-slate-900">
-                                {it.sku}
+                                <div>{it.sku}</div>
+                                {it.packageBreakdown && (
+                                  <div className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 mt-0.5 inline-block font-sans font-normal" title={it.packageBreakdown}>
+                                    📦 {it.packageBreakdown}
+                                  </div>
+                                )}
                               </td>
                               <td className="p-2 text-slate-600 max-w-[220px] truncate" title={it.productName}>
                                 {it.productName}
