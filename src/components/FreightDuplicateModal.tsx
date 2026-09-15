@@ -47,19 +47,24 @@ export const FreightDuplicateModal: React.FC<FreightDuplicateModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Identify duplicate conflicts (matching shipmentId + sku)
+  // Identify duplicate conflicts at shipment level
+  const existingShipmentIds = new Set(
+    existingItems.map((it) => it.shipmentId.trim().toUpperCase())
+  );
+
   const existingMap = new Map<string, FreightShippingItem>();
   existingItems.forEach((it) => {
-    existingMap.set(`${it.shipmentId.toUpperCase()}_${it.sku.toUpperCase()}`, it);
+    existingMap.set(`${it.shipmentId.trim().toUpperCase()}_${it.sku.trim().toUpperCase()}`, it);
   });
 
   const conflicts: DuplicateConflictItem[] = [];
   const brandNewItems: FreightShippingItem[] = [];
 
   incomingItems.forEach((incoming) => {
-    const key = `${incoming.shipmentId.toUpperCase()}_${incoming.sku.toUpperCase()}`;
-    const existing = existingMap.get(key);
-    if (existing) {
+    const isConflictShipment = existingShipmentIds.has(incoming.shipmentId.trim().toUpperCase());
+    if (isConflictShipment) {
+      const key = `${incoming.shipmentId.trim().toUpperCase()}_${incoming.sku.trim().toUpperCase()}`;
+      const existing = existingMap.get(key);
       conflicts.push({
         shipmentId: incoming.shipmentId,
         sku: incoming.sku,
@@ -159,7 +164,7 @@ export const FreightDuplicateModal: React.FC<FreightDuplicateModalProps> = ({
                     </span>
                   </div>
                   <p className="text-slate-500 text-[11px] mt-0.5 leading-relaxed">
-                    使用本次上传表格中的单箱实重、箱数、箱规、运费单价和发货时间覆盖原有的同名货件/SKU记录，更新计算运费。
+                    使用本次上传表格中的全部明细，完全替换系统中同货件编号（{conflictShipmentIds.slice(0, 3).join(', ')}{conflictShipmentIds.length > 3 ? '等' : ''}）的历史记录（完整保留单箱与混箱等独立明细，并更新计费实重与运费）。
                   </p>
                 </div>
               </label>
@@ -182,11 +187,11 @@ export const FreightDuplicateModal: React.FC<FreightDuplicateModalProps> = ({
                 />
                 <div className="flex-1">
                   <div className="font-bold text-slate-900">
-                    跳过重复数据，仅新增全新货件 (Skip Duplicates)
+                    跳过重复货件，仅新增全新货件 (Skip Duplicates)
                   </div>
                   <p className="text-slate-500 text-[11px] mt-0.5 leading-relaxed">
-                    保留系统中已有的 {conflicts.length} 条记录不作修改，仅把本次上传中全新未录入的{' '}
-                    {brandNewItems.length} 条明细写入系统。
+                    保留系统中已有的 {conflictShipmentIds.length} 票货件不作任何修改，仅把本次上传中全新未录入的{' '}
+                    {brandNewItems.length} 条货件明细写入系统。
                   </p>
                 </div>
               </label>

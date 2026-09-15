@@ -389,6 +389,7 @@ export const FreightSummaryView: React.FC<FreightSummaryViewProps> = ({
   };
 
   // Execute freight data import with duplicate resolution strategy
+  // 保持头程明细完整性：同一个货件下的单箱明细与混箱明细分别独立保留，决不通过 (shipmentId, sku) 字典覆盖删减
   const executeImportFreightData = (
     strategy: DuplicateResolutionStrategy,
     incomingItems: FreightShippingItem[],
@@ -398,34 +399,22 @@ export const FreightSummaryView: React.FC<FreightSummaryViewProps> = ({
     let finalItems: FreightShippingItem[] = [];
 
     if (strategy === 'overwrite') {
-      const existingMap = new Map<string, FreightShippingItem>();
-      freightItems.forEach((it) =>
-        existingMap.set(
-          `${it.shipmentId.toUpperCase()}_${it.sku.toUpperCase()}`,
-          it
-        )
+      const incomingShipmentIds = new Set(
+        incomingItems.map((it) => it.shipmentId.trim().toUpperCase())
       );
-      incomingItems.forEach((it) => {
-        const key = `${it.shipmentId.toUpperCase()}_${it.sku.toUpperCase()}`;
-        const existing = existingMap.get(key);
-        if (existing) {
-          existingMap.set(key, { ...existing, ...it, id: existing.id });
-        } else {
-          existingMap.set(key, it);
-        }
-      });
-      finalItems = Array.from(existingMap.values());
+      // 保留未在此次上传表格中的其他货件已有数据
+      const retainedExisting = freightItems.filter(
+        (it) => !incomingShipmentIds.has(it.shipmentId.trim().toUpperCase())
+      );
+      // 覆盖更新：完整采用本次上传表格中的全部明细行（完整独立保留单箱行与混箱行，绝不合并或冲刷丢弃明细）
+      finalItems = [...retainedExisting, ...incomingItems];
     } else if (strategy === 'skip') {
-      const existingKeys = new Set(
-        freightItems.map(
-          (it) => `${it.shipmentId.toUpperCase()}_${it.sku.toUpperCase()}`
-        )
+      const existingShipmentIds = new Set(
+        freightItems.map((it) => it.shipmentId.trim().toUpperCase())
       );
+      // 跳过重复：仅保留系统中完全不存在的全新货件明细
       const brandNew = incomingItems.filter(
-        (it) =>
-          !existingKeys.has(
-            `${it.shipmentId.toUpperCase()}_${it.sku.toUpperCase()}`
-          )
+        (it) => !existingShipmentIds.has(it.shipmentId.trim().toUpperCase())
       );
       finalItems = [...freightItems, ...brandNew];
     } else if (strategy === 'append') {
@@ -466,7 +455,7 @@ export const FreightSummaryView: React.FC<FreightSummaryViewProps> = ({
           : strategy === 'skip'
           ? '跳过重复'
           : '全部追加'
-      })：处理 ${count} 条明细，涉及 ${sCount} 票货件，总件数 ${uCount}`,
+      })：处理 ${count} 条明细，涉及 ${sCount} 票货件，总件数 ${uCount}（单箱与混箱明细已全部分别保留）`,
     });
 
     setUploadFeedback(
@@ -476,7 +465,7 @@ export const FreightSummaryView: React.FC<FreightSummaryViewProps> = ({
           : strategy === 'skip'
           ? '跳过重复仅新增'
           : '全部追加'
-      }」方式导入 ${count} 条出货明细（${sCount} 票货件，共 ${uCount} 件）`
+      }」方式导入 ${count} 条出货明细（${sCount} 票货件，共 ${uCount} 件，单箱与混箱明细均已分别独立保留）`
     );
 
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -497,19 +486,19 @@ export const FreightSummaryView: React.FC<FreightSummaryViewProps> = ({
         throw new Error('未在文件中读取到有效出货记录');
       }
 
-      // Check if duplicate items exist
-      const existingKeys = new Set(
-        freightItems.map(
-          (it) => `${it.shipmentId.toUpperCase()}_${it.sku.toUpperCase()}`
+      // 检查是否有已存在于系统中的同编号货件
+      const existingShipmentIds = new Set(
+        freightItems.map((it) => it.shipmentId.trim().toUpperCase())
+      );
+      const conflictShipments = Array.from(
+        new Set(
+          result.items
+            .map((it) => it.shipmentId.trim().toUpperCase())
+            .filter((sid) => existingShipmentIds.has(sid))
         )
       );
-      const duplicateCount = result.items.filter((it) =>
-        existingKeys.has(
-          `${it.shipmentId.toUpperCase()}_${it.sku.toUpperCase()}`
-        )
-      ).length;
 
-      if (duplicateCount > 0) {
+      if (conflictShipments.length > 0) {
         // Prompt user with Duplicate Modal
         setPendingUploadResult({
           items: result.items,
